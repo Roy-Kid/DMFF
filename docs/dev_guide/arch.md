@@ -12,6 +12,7 @@ In the frontend module design, DMFF reuses the frontend parser module and topolo
 
 Frontend modules are implemented in `api.py`. The `Hamiltonian` class is the top-level class exposed to users by DMFF. The `Hamiltonian` class reads the path of the XML file, parses the XML file, and calls different frontend modules according to the XML tags. The frontend module has the same form as the OpenMM generators in [forcefield.py](https://github.com/openmm/openmm/blob/master/wrappers/python/openmm/app/forcefield.py). The `Generator` class takes the XML tag in, parses the parameters, initializes the backend calculator, and provides the interface of the energy calculation method.
 
+
 When users use the DMFF, the only thing needs to do is initialize the `Hamiltonian` class. In this process, `Hamiltonian` will automatically parse and initialize the corresponding potential function according to the tags in XML. The call logic is shown in the following chart. The box represents the command executed in Python script, and the rounded box represents the internal operation logic of OpenMM when executing the command.
 
 ![openmm_workflow](../assets/opemm_workflow.svg)
@@ -45,12 +46,15 @@ pot_pme = potentials[1]
 * read AtomTypes tag, store AtomType of each atom;
 * for each Force tag, call corresponding `parseElement` method in `app.forcefield.parser` to parse itself, and register `generator`.
 
+
 `app.forcefield.parser` is a `dict`. The keys are Force tag names, and the values are `parseElement` method of `Generator`. The Hamiltonian class will use the tag name to look up the corresponding `parseElement` method of the `Generator` instance and store raw data from the XML file. You can get generators by the `getGenerators()` function of Hamiltonian. 
+
 
 ### Generator Class
 
 
 The generator class is in charge of input file analysis, molecular topology construction, atomic classification, and expansion from the force field parameter layer to the atomic parameter layer. It is a middle layer link `Hamiltonian` and backend. See the following documents for the specific design logic:
+
 
 ![generator](../assets/generator.svg)
 
@@ -67,6 +71,7 @@ The custom generator must have those methods:
 ```
 
 It will activate `HarmonicBondJaxGenerator.parseElement` method, which is the value of key `app.forcefield.parsers["HarmonicBondForce"]`. In this function, you can use `element.findall("Bond")` to get an iterator of the `Element` objects of <Bond> tage. For `Element` object, you can use `.attrib` to get properties such as {'type1': 'ow} in `dict` format.
+
 
 What `parseElement` does is parsing the `Element` object and initializing the generator itself. The parameters in generators can be classified into two categories. Those differentiable parameters should store in a `dict` named `params`, and non-differentiable static parameters can simply be set as the generator's attribute. Jax support `pytree` nested container, and the values of `params` can be directly grad.
 
