@@ -12,6 +12,7 @@ from dmff.admp.spatial import (build_quasi_internal,
 from dmff.settings import DO_JIT
 from dmff.utils import jit_condition, pair_buffer_scales, regularize_pairs
 from jax import grad, jit, value_and_grad, vmap
+from jax.scipy.special import erf
 
 DIELECTRIC = 1389.35455846
 DEFAULT_THOLE_WIDTH = 5.0
