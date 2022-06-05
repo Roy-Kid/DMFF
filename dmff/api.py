@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+from copy import deepcopy
 import openmm as mm
 import openmm.app as app
 import openmm.unit as unit
@@ -100,7 +101,10 @@ class XMLNodeInfo:
         content = '\n\t'.join([repr(e) for e in self.elements])
         return left + content + '\n' + right
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> 7c00fea41bde7d46cbc6955adc155c72d6bc1a77
 
 def get_line_context(file_path, line_number):
     return linecache.getline(file_path, line_number).strip()
@@ -259,7 +263,7 @@ app.forcefield.parsers["ADMPDispForce"] = ADMPDispGenerator.parseElement
 class ADMPDispPmeGenerator:
     r'''
     This one computes the undamped C6/C8/C10 interactions
-    u = \sum_{ij} c6/r^6 + c8/r^8 + c10/r^10
+    math:`u = \sum_{ij} c6/r^6 + c8/r^8 + c10/r^10 $$`
     '''
 
     def __init__(self, hamiltonian):
@@ -1148,7 +1152,6 @@ class HarmonicBondJaxGenerator:
 
     @staticmethod
     def parseElement(element, hamiltonian):
-
         r"""parse <HarmonicBondForce> section in XML file
         
             example: 
