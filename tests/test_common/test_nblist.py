@@ -1,50 +1,50 @@
 import pytest
 import jax.numpy as jnp
 from dmff import NeighborList
+import numpy.testing as npt
 
 class TestNeighborList:
     
-    @pytest.fixture(scope="class", name='nblist')
-    def test_nblist_init(self):
-        positions = jnp.array([[12.434,   3.404,   1.540],
-                                [13.030,   2.664,   1.322],
-                                [12.312,   3.814,   0.660],
-                                [14.216,   1.424,   1.103],
-                                [14.246,   1.144,   2.054],
-                                [15.155,   1.542,   0.910]])
+    @pytest.fixture(scope="class", name='nblist1')
+    def test_nblist_init1(self):
+        box_vector = jnp.ones(3) * 3
+        r_cut = 0.1
+        _positions = jnp.linspace(0.5, 0.7, 10)
+        positions = jnp.stack([_positions, _positions, _positions], axis=1)
         
-        box = jnp.array([31.289,   31.289,   31.289])
-        r_cutoff = 4.0
-        nbobj = NeighborList(box, r_cutoff)
-        nbobj.allocate(positions)
-        yield nbobj
+        nblist = NeighborList(box_vector, r_cut)
+        nblist.allocate(positions)
+        yield nblist
         
-    def test_update(self, nblist):
-
-        positions = jnp.array([[12.434,   3.404,   1.540],
-                                [13.030,   2.664,   1.322],
-                                [12.312,   3.814,   0.660],
-                                [14.216,   1.424,   1.103],
-                                [14.246,   1.144,   2.054],
-                                [15.155,   1.542,   0.910]])   
+    @pytest.fixture(scope="class", name='nblist2')
+    def test_nblist_init2(self):
+        box_vector = jnp.ones(3) * 3
+        r_cut = 0.1
+        _positions = jnp.linspace(0.5, 0.7, 10)
+        positions = jnp.stack([_positions, _positions, _positions], axis=1)
         
-        nblist.update(positions)
+        nblist = NeighborList(box_vector[0], r_cut)
+        nblist.allocate(positions)
+        yield nblist
         
-    def test_pairs(self, nblist):
+    def test_box_vector_representation(self, nblist1, nblist2):
+        npt.assert_allclose(nblist1.nblist.idx, nblist2.nblist.idx)
         
-        pairs = nblist.pairs
-        assert pairs.shape == (18, 2)
+    def test_pairs(self, nblist1):
         
-    def test_pair_mask(self, nblist):
+        pairs = nblist1.pairs
+        assert pairs.shape == (21, 2)
         
-        pair, mask = nblist.pair_mask
-        assert mask.shape == (18, )
+    def test_pair_mask(self, nblist1):
         
-    def test_dr(self, nblist):
+        pair, mask = nblist1.pair_mask
+        assert mask.shape == (21, )
         
-        dr = nblist.dr
-        assert dr.shape == (18, 3)
+    def test_dr(self, nblist1):
         
-    def test_distance(self, nblist):
+        dr = nblist1.dr
+        assert dr.shape == (21, 3)
         
-        assert nblist.distance.shape == (18, )
+    def test_distance(self, nblist1):
+        
+        assert nblist1.distance.shape == (21, )
