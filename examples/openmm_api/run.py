@@ -9,7 +9,6 @@ import jax.numpy as jnp
 from dmff.api import Hamiltonian
 from jax_md import space, partition
 from jax import grad
-from time import time
 
 if __name__ == '__main__':
     

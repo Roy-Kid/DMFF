@@ -679,6 +679,7 @@ class ADMPPmeGenerator:
         self.ethresh = 5e-4
         self.lpol = False
         self.ref_dip = ""
+        self.step_pol = None
 
     def registerAtomType(self, atom: dict):
 
@@ -1063,6 +1064,9 @@ class ADMPPmeGenerator:
 
         if "ethresh" in args:
             self.ethresh = args["ethresh"]
+            
+        if "step_pol" in args:
+            self.step_pol = args["step_pol"]
 
         pme_force = ADMPPmeForce(
             box,
@@ -1073,7 +1077,8 @@ class ADMPPmeGenerator:
             self.ethresh,
             self.lmax,
             self.lpol,
-            lpme=self.lpme,
+            self.lpme,
+            self.step_pol
         )
         self.pme_force = pme_force
 

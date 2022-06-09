@@ -8,7 +8,7 @@ from dmff import Hamiltonian
 
 class TestADMPAPI:
     
-    """ Test ADMP related generators
+    """ Test ADMP frontend api
     """
     
     @pytest.fixture(scope='class', name='generators')

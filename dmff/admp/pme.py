@@ -169,19 +169,21 @@ class ADMPPmeForce:
         mScales = jax.lax.stop_gradient(mScales)
         pScales = jax.lax.stop_gradient(pScales)
         dScales = jax.lax.stop_gradient(dScales)
-        if U_init is None:
-            U = jnp.zeros((self.n_atoms, 3))
-        else:
+        U = jnp.zeros((self.n_atoms, 3))
+        if U_init is not None:
             U = U_init
         if steps_pol is None:
             site_filter = (pol>0.001) # focus on the actual polarizable sites
 
         if steps_pol is None:
+            
             for i in range(maxiter):
                 field = self.grad_U_fn(positions, box, pairs, Q_local, U, pol, tholes, mScales, pScales, dScales)
                 # E = self.energy_fn(positions, box, pairs, Q_local, U, pol, tholes, mScales, pScales, dScales)
+                
                 if jnp.max(jnp.abs(field[site_filter])) < thresh:
                     break
+                
                 U = U - field * pol[:, jnp.newaxis] / DIELECTRIC
             if i == maxiter-1:
                 flag = False
