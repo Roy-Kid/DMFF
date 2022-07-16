@@ -1837,7 +1837,10 @@ class HarmonicBondJaxGenerator:
         extract forcefield paramters from ForcefieldTree. 
         """
         lengths = self.fftree.get_attribs(f"{self.name}/Bond", "length")
-        # get_attribs will return a list of list. 
+        # get_attribs will return a list if attribute name is a simple string
+        # e.g. if you provide 'length' then return  [1.0, 2.0, 3.0];
+        # if attribute name is a list, e.g. ['length', 'k']
+        # then return [[1.0, 1.0], [2.0, 2.0], [3.0, 3.0]] List[List[value1, value2]]
         ks = self.fftree.get_attribs(f"{self.name}/Bond", "k")
         self.paramtree[self.name] = {}
         self.paramtree[self.name]["length"] = jnp.array(lengths)
@@ -2486,8 +2489,12 @@ class NonbondedJaxGenerator:
                                params[self.name]["sigma"],
                                params[self.name]["epsfix"],
                                params[self.name]["sigfix"], mscales_lj)
-                coulE = coulenergy(positions, box, pairs,
-                                   params[self.name]["charge"], mscales_coul)
+                # if particles have no charge then skip the coul calc
+                if jnp.sum(jnp.abs(params[self.name]["charge"]) >1e-7 ) != 0:
+                    coulE = coulenergy(positions, box, pairs,
+                                    params[self.name]["charge"], mscales_coul)
+                else:
+                    coulE = 0
 
                 if useDispersionCorrection:
                     ljDispEnergy = ljDispEnergyFn(box,

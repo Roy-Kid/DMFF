@@ -6,43 +6,44 @@ from dmff.utils import regularize_pairs
 
 class NeighborList:
     
-    def __init__(self, box, rc) -> None:
+    def __init__(self, rc) -> None:
         """ wrapper of jax_md.space_periodic_general and jax_md.partition.NeighborList
 
         Args:
-            box (jnp.ndarray): A (spatial_dim, spatial_dim) affine transformation or [lx, ly, lz] vector
             rc (float): cutoff radius
         """
-        self.box = box
         self.rc = rc
-        self.displacement_fn, self.shift_fn = space.periodic_general(box, fractional_coordinates=False)
-        self.neighborlist_fn = partition.neighbor_list(self.displacement_fn, box, rc, 0, format=partition.OrderedSparse)
-        self.nblist = None
+
         
-    def allocate(self, positions: jnp.ndarray):
+    def allocate(self, positions: jnp.ndarray, box: jnp.ndarray):
         """ A function to allocate a new neighbor list. This function cannot be compiled, since it uses the values of positions to infer the shapes.
 
         Args:
             positions (jnp.ndarray): particle positions
+            box (jnp.ndarray): box size with shape (3, 3)
 
         Returns:
             jax_md.partition.NeighborList
         """
-        if self.nblist is None:
-            self.nblist = self.neighborlist_fn.allocate(positions)
-        else:
-            self.update(positions)
+        self.displacement_fn, self.shift_fn = space.periodic_general(box, fractional_coordinates=False)
+        self.neighborlist_fn = partition.neighbor_list(self.displacement_fn, box, self.rc, 0, format=partition.OrderedSparse)
+        self.nblist = self.neighborlist_fn.allocate(positions)
         return self.nblist
     
-    def update(self, positions: jnp.ndarray):
+    def update(self, positions: jnp.ndarray, box: jnp.ndarray=None):
         """ A function to update a neighbor list given a new set of positions and a previously allocated neighbor list.
 
         Args:
             positions (jnp.ndarray): particle positions
+            box (jnp.ndarray): box size with shape (3, 3)
 
         Returns:
             jax_md.partition.NeighborList
         """
+
+        if box is not None:
+            positions = space.transform(box, positions)
+
         jit_deco = jit_condition()
         jit_deco(self.nblist.update)(positions)
         
