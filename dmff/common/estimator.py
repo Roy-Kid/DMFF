@@ -4,11 +4,10 @@
 # version: 0.0.1
 
 from copy import deepcopy
-from typing import Callable, Dict
+from typing import Callable, Dict, Literal
 from jax import vmap
 import jax.numpy as jnp
 import numpy as np
-import freud
 from dmff.common.nblist import NeighborList
 
 kb = 1.38064852e-23
@@ -18,9 +17,9 @@ class Reweighting:
     def __init__(self, positions, box):
 
         self.target_func:Callable = None
-        self.positions:jnp.ndarray = positions
-        self.box:jnp.ndarray = box
-        self.params:Dict = None
+        self.set_samples(positions, box)
+        self.ff_params:Dict = None
+        self.ensemble_params:Dict = None
 
     def set_target_func(self, target_func:Callable):
         r"""
@@ -47,6 +46,8 @@ class Reweighting:
 
         self.samples = samples
         self.box = box
+        self.n_samples = len(self.positions)
+        assert self.n_samples == len(self.box)
 
     def set_ff_params(self, params:Dict):
         r"""
@@ -76,7 +77,7 @@ class Reweighting:
         """
         self.energy_func = energy_func
 
-    def estimate(self, ffparams:Dict, ensemble_params:Dict):
+    def estimate(self, ensemble_style:Literal['npt', 'nve', 'nvt'], ffparams:Dict, ensemble_params:Dict):
         r"""
         return the rewighting estimator of the physical quantity function $\hat{A_0}(\Tau_1)$
 
@@ -94,9 +95,18 @@ class Reweighting:
 
         calc_energy = self.energy_func
 
+        T0 = alpha0['T']
+        T1 = alpha1['T']
+        beta0 = kb * T0
+        beta0 = 1/beta0
+        beta1 = kb * T1
+        beta1 = 1/beta1
+        P0 = alpha0['pressure']
+        P1 = alpha1['pressure']
+
         # warm up
-        nblist = NeighborList(self.box[0], 2.5)
-        nblist.allocate(self.positions[0])
+        nblist = NeighborList(2.5)
+        nblist.allocate(self.positions[0], self.box[0])
 
         def calc_nblist(positions, box):
             nblist.update(positions, box)
@@ -108,25 +118,36 @@ class Reweighting:
         def _hat_A(position, box, pairs):
 
             # calculate energy
-            u0 = calc_energy(position, box, pairs, theta0)
-            u1 = calc_energy(position, box, pairs, theta1)
-            d_blz = jnp.exp(-self.beta * (u1 - u0))
+            V = box[0, 0] * box[1, 1] * box[2, 2]
+            u0 = calc_energy(position, box, pairs, theta0) + P0*V
+            u1 = calc_energy(position, box, pairs, theta1) + P1*V
+            d_blz = -( (beta0 * u0) - (beta1 * u1) )
+            offset = jnp.max(d_blz)
+            d_blz = jnp.exp(d_blz - offset)
 
             fenzi = self.target_func(position, box, theta1) * d_blz
             fenmu = d_blz
             return fenzi, fenmu
 
         fenzis, fenmus = vmap(_hat_A, in_axes=(0, 0, 0))(self.positions, self.box, pairs)
+        self._fenzis = fenzis
+        self._fenmus = fenmus
 
-        return jnp.sum(fenzis) / jnp.sum(fenmus)
-                
+        hat_A = jnp.sum(fenzis) / jnp.sum(fenmus)
+        self._hat_A = hat_A
+        return hat_A
 
     def __call__(self, *args, **kwargs):
         return self.estimate(*args, **kwargs)
 
     def calc_uncertainty(self):
 
-        pass
+        prefactor = 1 / (self._hat_A * self.n_samples)**2
+        uncertainty = jnp.sum(vmap(lambda An: (self._hat_A - An)**2, in_axes=(0))(self._fenzis / self._fenmus)) * prefactor
+
+        return uncertainty
+
+    uncertainty = property(calc_uncertainty)
 
     def resample(self):
         pass

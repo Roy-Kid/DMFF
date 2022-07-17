@@ -6,6 +6,8 @@ import openmm.app as app
 import freud
 import jax.numpy as jnp
 from jax import vmap
+import dmff.settings as settings
+settings.DO_JIT = False
 
 t = md.load_netcdf('data/output.nc', top='data/output.pdb')
 
@@ -38,6 +40,8 @@ reweight.set_ensemble_params({'T': 300, 'pressure': 1})  # only emsemble params,
 reweight.set_ff_params(ffparams)
 reweight.set_target_func(target_func)
 reweight.set_energy_func(ljE)
-hat_A = reweight.estimate({}, {'T': 400})  # \tau_1
+hat_A = reweight.estimate('npt', {}, {'T': 310})  # \tau_1
 print(jnp.mean(vmap(target_func, in_axes=(0, 0, None))(atoms, box, None)))
 print(hat_A)
+uncertainty = reweight.uncertainty
+print(uncertainty)
