@@ -5,21 +5,21 @@
 
 from copy import deepcopy
 from typing import Callable, Dict, Literal
-from jax import vmap
+from jax import vmap, tree_util
 import jax.numpy as jnp
 import numpy as np
 from dmff.common.nblist import NeighborList
 
-kb = 1.38064852e-23
+kb = 8.314  # J/K/mol
 
 class Reweighting:
 
-    def __init__(self, positions, box):
+    def __init__(self, style):
 
         self.target_func:Callable = None
-        self.set_samples(positions, box)
         self.ff_params:Dict = None
         self.ensemble_params:Dict = None
+        self.style = style
 
     def set_target_func(self, target_func:Callable):
         r"""
@@ -32,22 +32,24 @@ class Reweighting:
         """
         self.target_func = target_func
 
-    def set_samples(self, samples:jnp.ndarray, box:jnp.ndarray):
-        r"""
-        set a series of trajectories ${x_n}, n=1...N$ of the ensemble to this estimator. The physical quantity function $A=A(x, \tau)$ are rely on the ensemble. 
+    # def set_samples(self, traj:jnp.ndarray, box:jnp.ndarray):
+    #     r"""
+    #     set a series of trajectories ${x_n}, n=1...N$ of the ensemble to this estimator. The physical quantity function $A=A(x, \tau)$ are rely on the ensemble. 
 
-        Parameters
-        ----------
-        samples : jnp.ndarray
-            The shape of samples should be `(N, N_a, 3)`, N is the length of trajectories, N_a is the number of particle members, and 3 is the dimension of the state.
-        """
+    #     Parameters
+    #     ----------
+    #     traj : jnp.ndarray
+    #         The shape of traj should be `(N, N_a, 3)`, N is the length of trajectories, N_a is the number of particle members, and 3 is the dimension of the state.
+    #     """
+
+    #     assert len(box) == len(traj)
+    #     self.traj = traj
+    #     self.box = box
+    #     self.n_traj = len(traj)
         
-        assert samples.ndim == 4
-
-        self.samples = samples
-        self.box = box
-        self.n_samples = len(self.positions)
-        assert self.n_samples == len(self.box)
+    #     # warm up
+    #     self.nblist = NeighborList(8)
+    #     self.nblist.allocate(self.traj[0], self.box[0])
 
     def set_ff_params(self, params:Dict):
         r"""
@@ -77,7 +79,7 @@ class Reweighting:
         """
         self.energy_func = energy_func
 
-    def estimate(self, ensemble_style:Literal['npt', 'nve', 'nvt'], ffparams:Dict, ensemble_params:Dict):
+    def estimate(self, params, positions, box, pairs):
         r"""
         return the rewighting estimator of the physical quantity function $\hat{A_0}(\Tau_1)$
 
@@ -86,68 +88,103 @@ class Reweighting:
         params : Dict
             $\tau_1$
         """
+        if positions.ndim == 2:
+            positions = positions.reshape(-1, *positions.shape)  # (N, natoms, 3)
+        if box.ndim == 2:
+            box = box.reshape(-1, *box.shape)  # (N, 3, 3)
+                
         theta0 = self.ff_params
-        theta1 = deepcopy(self.ff_params)
-        theta1.update(ffparams)
+        theta1 = params['ffparams']
+
         alpha0 = self.ensemble_params
-        alpha1 = deepcopy(self.ensemble_params)
-        alpha1.update(ensemble_params)
-
+        alpha1 = params['ensemble_params']
+            
         calc_energy = self.energy_func
-
+        
+        # extract ensemble parameters
         T0 = alpha0['T']
         T1 = alpha1['T']
-        beta0 = kb * T0
-        beta0 = 1/beta0
-        beta1 = kb * T1
-        beta1 = 1/beta1
-        P0 = alpha0['pressure']
-        P1 = alpha1['pressure']
+        beta0 = 1/ (kb * T0)
+        beta1 = 1/ (kb * T1)
+        P0 = alpha0['p']
+        P1 = alpha1['p']
+        
+        ensemble_style = self.style
 
-        # warm up
-        nblist = NeighborList(2.5)
-        nblist.allocate(self.positions[0], self.box[0])
+        if ensemble_style == 'npt':
 
-        def calc_nblist(positions, box):
-            nblist.update(positions, box)
-            return nblist.pairs
 
-        pairs = vmap(calc_nblist, in_axes=(0, 0))(self.positions, self.box)
-        pairs = np.array(pairs)
+            def _estimate(position, box):
 
-        def _hat_A(position, box, pairs):
+                # calculate energy
+                V = box[0, 0] * box[1, 1] * box[2, 2]
+                u0 = calc_energy(position, box, pairs, theta0) + P0*V
+                u1 = calc_energy(position, box, pairs, theta1) + P1*V
+                d_blz = -( (beta0 * u0) - (beta1 * u1) )
+                A = self.target_func(position, box, theta1)
+                _exp = jnp.exp(d_blz)
+                A_exp = A * _exp
 
-            # calculate energy
-            V = box[0, 0] * box[1, 1] * box[2, 2]
-            u0 = calc_energy(position, box, pairs, theta0) + P0*V
-            u1 = calc_energy(position, box, pairs, theta1) + P1*V
-            d_blz = -( (beta0 * u0) - (beta1 * u1) )
-            offset = jnp.max(d_blz)
-            d_blz = jnp.exp(d_blz - offset)
+                return A_exp, _exp
+            
+        elif ensemble_style == 'nvt':
+            
+            def _estimate(position, box):
 
-            fenzi = self.target_func(position, box, theta1) * d_blz
-            fenmu = d_blz
-            return fenzi, fenmu
+                # calculate energy
+                u0 = calc_energy(position, box, pairs, theta0)
+                u1 = calc_energy(position, box, pairs, theta1)
+                
+                
+                d_blz = -( (beta0 * u0) - (beta1 * u1) )
+                A = self.target_func(position, box, theta1)
 
-        fenzis, fenmus = vmap(_hat_A, in_axes=(0, 0, 0))(self.positions, self.box, pairs)
-        self._fenzis = fenzis
-        self._fenmus = fenmus
+                _exp = jnp.exp(d_blz)
+                A_exp = A * _exp
 
-        hat_A = jnp.sum(fenzis) / jnp.sum(fenmus)
-        self._hat_A = hat_A
+                return A_exp, _exp     
+            
+        elif ensemble_style == 'muvt':
+            pass
+            
+        else:
+            raise KeyError
+
+        len_pos = len(positions)
+        len_box = len(box)
+        assert len_box == len_pos, f'len of positions {len_pos} != len of box {len_box}'
+
+
+        # this method may causes OOM on GPU
+        A_exps, _exps = vmap(_estimate, in_axes=(0, 0))(positions, box)
+
+        # if so, use follow snippet instead
+        # A_exps = jnp.zeros(len_pos)
+        # _exps = jnp.zeros(len_pos)
+        
+        # for i in range(len_pos):
+        #     A_exp, fenmu = _estimate(positions[i], box[i])
+        #     A_exps = A_exps.at[i].set(A_exp)
+        #     _exps = _exps.at[i].set(fenmu)
+        
+        hat_A = jnp.sum(A_exps) / jnp.sum(_exps)
         return hat_A
 
     def __call__(self, *args, **kwargs):
         return self.estimate(*args, **kwargs)
 
-    def calc_uncertainty(self):
+    def calc_uncertainty(self, true_value):
 
-        prefactor = 1 / (self._hat_A * self.n_samples)**2
-        uncertainty = jnp.sum(vmap(lambda An: (self._hat_A - An)**2, in_axes=(0))(self._fenzis / self._fenmus)) * prefactor
+        prefactor = 1 / (self._hat_A * self.n_traj)**2
+
+        def _uncertainty(An):
+            # An is true value
+            # _hat_A is estimate value
+            return (self._hat_A - An)**2
+        
+        uncertainty = jnp.sum(vmap(_uncertainty, in_axes=(0))(true_value)) * prefactor
 
         return uncertainty
-
-    uncertainty = property(calc_uncertainty)
 
     def resample(self):
         pass
